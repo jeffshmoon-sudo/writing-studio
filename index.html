@@ -33,7 +33,7 @@ tr.h{cursor:pointer}tr.h:hover{background:var(--bg)}th{color:var(--sub);font-wei
 .news li{margin-bottom:10px;list-style:none}.news ul{padding:0;margin:0}.news a{color:var(--brand);text-decoration:none;font-weight:600}.news small{color:var(--sub)}
 dialog{border:1px solid var(--line);border-radius:12px;background:var(--panel);color:var(--ink);width:min(640px,94vw);padding:18px}
 dialog::backdrop{background:#0006}dialog label{display:block;margin:10px 0 4px;font-size:13px;color:var(--sub)}dialog input,dialog textarea{width:100%}dialog textarea{min-height:90px}
-#hist td:nth-child(-n+3),thead th{white-space:nowrap}.snip{max-width:0;width:100%}.snip div{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.s2{color:var(--sub);font-size:12px}.err{color:#dc2626}.hide{display:none!important}
+#hist td:nth-child(-n+3),thead th,#saved .btn{white-space:nowrap}.snip{max-width:0;width:100%}.snip div{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.s2{color:var(--sub);font-size:12px}.err{color:#dc2626}.hide{display:none!important}
 @media(max-width:820px){body{flex-direction:column;height:auto;min-height:100vh}aside{width:100%;flex-direction:row;overflow-x:auto;padding:8px;border-right:0;border-bottom:1px solid var(--line)}aside h1,.sep{display:none}.nav{width:auto;white-space:nowrap}.grid{grid-template-columns:1fr}}
 </style>
 </head>
@@ -66,7 +66,11 @@ dialog::backdrop{background:#0006}dialog label{display:block;margin:10px 0 4px;f
     </div>
   </div>
 
-  <div class="card">
+  <div class="card hide" id="savedCard">
+    <h3><span>저장한 기사 (참고용 · 제목을 누르면 원문이 열립니다)</span><span class="row"><button class="btn sm" id="sDelSel" disabled>선택 삭제</button></span></h3>
+    <div style="overflow:auto;max-height:320px"><table><thead><tr><th style="width:30px"><input type="checkbox" id="sChkAll" title="전체 선택"></th><th>기사</th><th></th></tr></thead><tbody id="saved"></tbody></table></div>
+  </div>
+  <div class="card" id="histCard">
     <h3><span>작업 기록 (날짜 · 요청 · 결과 — 클릭하면 그때 작업 복원)</span><span class="row"><button class="btn sm" id="exp">백업 내보내기</button><button class="btn sm" id="imp">가져오기</button><button class="btn sm" id="delSel" disabled>선택 삭제</button></span></h3>
     <div style="overflow:auto;max-height:260px"><table><thead><tr><th style="width:30px"><input type="checkbox" id="chkAll" title="전체 선택"></th><th>날짜</th><th>작업</th><th>내용 (요청 · 결과)</th></tr></thead><tbody id="hist"></tbody></table></div>
   </div>
@@ -111,10 +115,10 @@ const CATS={
   opts:[]}
 };
 const MODE_P={"작성":"[작성] 아래 주제/자료로 새 글을 써줘.","수정":"[수정] 아래 글을 내 의도를 살려 다듬어줘. 바뀐 핵심 포인트를 마지막에 3줄로 요약.","검사":"[검사] 아래 글을 점검해줘. 문제점과 수정본을 보여줘.","한→영":"[한→영] 아래를 영어로 번역해줘.","영→한":"[영→한] 아래를 자연스러운 한국어로 번역해줘."};
-let versions=[];
+let versions=[];let saved=LS.get("saved",[]);let newsItems=[];
 let cur=LS.get("cur","linkedin");
 
-function save(){LS.set("cfg",cfg);LS.set("hist",history)}
+function save(){LS.set("cfg",cfg);LS.set("hist",history);LS.set("saved",saved)}
 function buildNav(){
  $("#nav").innerHTML="<h1>✍️ 글쓰기 스튜디오</h1>"+Object.entries(CATS).map(([k,c])=>`<button class="nav ${k===cur?"on":""}" data-k="${k}">${c.icon} ${c.name}</button>`).join("")+`<div class="sep"></div><button class="nav" id="setBtn">⚙️ 설정</button>`;
  document.querySelectorAll(".nav[data-k]").forEach(b=>b.onclick=()=>{cur=b.dataset.k;LS.set("cur",cur);render()});
@@ -124,13 +128,13 @@ function render(){
  buildNav();const c=CATS[cur];
  $("#title").textContent=c.icon+" "+c.name;$("#desc").textContent=c.desc;
  const isNews=cur==="news";
- $("#newsView").classList.toggle("hide",!isNews);$("#workView").classList.toggle("hide",isNews);
+ $("#newsView").classList.toggle("hide",!isNews);$("#savedCard").classList.toggle("hide",!isNews);$("#histCard").classList.toggle("hide",isNews);$("#workView").classList.toggle("hide",isNews);
  $("#state").textContent=cfg.key?"AI 연결됨":"API 키 필요 (⚙️ 설정)";
  $("#opts").innerHTML=c.opts.map(([id,l,vals])=>`<label>${l} <select data-o="${id}">${vals.map(v=>`<option>${v}</option>`).join("")}</select></label>`).join("");
  $("#actions").innerHTML=c.modes.map((m,i)=>`<button class="btn ${i===0?"pri":""}" data-m="${m}">${m}</button>`).join("");
  document.querySelectorAll("#actions button").forEach(b=>b.onclick=()=>run(b.dataset.m));
  $("#imgBox").classList.add("hide");$("#out").textContent="결과가 여기에 표시됩니다.";versions=[];$("#undo").disabled=true;
- if(isNews){$("#kw").value=cfg.kw;if(cfg.kw)loadNews()}
+ if(isNews){$("#kw").value=cfg.kw;renderSaved();if(cfg.kw)loadNews()}
  renderHist();
 }
 function renderHist(){
@@ -212,28 +216,42 @@ $("#copy").onclick=()=>navigator.clipboard.writeText($("#out").innerText);
 $("#toIn").onclick=()=>inp.value=$("#out").innerText;
 
 /* 뉴스 */
+const isSaved=l=>saved.some(x=>x.link===l);
+function writeFrom(t,l){cur="linkedin";LS.set("cur",cur);render();inp.value=`다음 기사를 내 관점의 인사이트로 풀어 글을 써줘.\n제목: ${t}\n${l}`}
 async function loadNews(){
  const kws=$("#kw").value.split(",").map(s=>s.trim()).filter(Boolean);if(!kws.length)return;
- const box=$("#newsList");box.textContent="수집 중…";let html="";
+ const box=$("#newsList");box.textContent="수집 중…";let html="";newsItems=[];
  for(const k of kws){
   try{
    const u="https://news.google.com/rss/search?q="+encodeURIComponent(k)+"&hl=ko&gl=KR&ceid=KR:ko";
    const r=await fetch("https://api.rss2json.com/v1/api.json?rss_url="+encodeURIComponent(u));const j=await r.json();
-   html+=`<h3>${esc(k)}</h3><ul>`+(j.items||[]).slice(0,6).map(i=>`<li><a href="${esc(i.link)}" target="_blank" rel="noopener">${esc(i.title)}</a><br><small>${esc((i.pubDate||"").slice(0,10))}</small> <button class="btn sm" data-t="${esc(i.title)}" data-l="${esc(i.link)}">이 기사로 링크드인 글쓰기</button></li>`).join("")+"</ul>";
+   html+=`<h3>${esc(k)}</h3><ul>`+(j.items||[]).slice(0,6).map(i=>{const n=newsItems.push({title:i.title,link:i.link,date:(i.pubDate||"").slice(0,10),kw:k})-1;return `<li><a href="${esc(i.link)}" target="_blank" rel="noopener">${esc(i.title)}</a><br><small>${esc((i.pubDate||"").slice(0,10))}</small> <button class="btn sm sv" data-i="${n}">${isSaved(i.link)?"✓ 저장됨":"☆ 기사 저장"}</button> <button class="btn sm wr" data-i="${n}">글쓰기</button></li>`}).join("")+"</ul>";
   }catch(e){html+=`<p class="err">${esc(k)}: 수집 실패 (${esc(e.message)})</p>`}
  }
  box.innerHTML=html;
- box.querySelectorAll("button[data-t]").forEach(b=>b.onclick=()=>{cur="linkedin";LS.set("cur",cur);render();inp.value=`다음 기사를 내 관점의 인사이트로 풀어 글을 써줘.\n제목: ${b.dataset.t}\n${b.dataset.l}`;});
+ box.querySelectorAll(".sv").forEach(b=>b.onclick=()=>{const it=newsItems[b.dataset.i];
+  if(isSaved(it.link))saved=saved.filter(x=>x.link!==it.link);else saved.unshift({...it,t:Date.now()});
+  save();b.textContent=isSaved(it.link)?"✓ 저장됨":"☆ 기사 저장";renderSaved()});
+ box.querySelectorAll(".wr").forEach(b=>b.onclick=()=>{const it=newsItems[b.dataset.i];writeFrom(it.title,it.link)});
 }
+function renderSaved(){
+ $("#saved").innerHTML=saved.length?saved.map((x,i)=>`<tr><td><input type="checkbox" class="sChk" data-l="${esc(x.link)}"></td><td class="snip"><div class="s1"><a href="${esc(x.link)}" target="_blank" rel="noopener" style="color:inherit">${esc(x.title)}</a></div><div class="s2">${esc(x.date)} · ${esc(x.kw)}</div></td><td><button class="btn sm sw" data-i="${i}">글쓰기</button></td></tr>`).join(""):`<tr><td colspan=3 style="color:var(--sub)">저장한 기사가 없습니다. 기사 옆 "☆ 기사 저장"을 눌러 보관하세요.</td></tr>`;
+ const sync=()=>{const c=[...document.querySelectorAll(".sChk")];const n=c.filter(x=>x.checked).length;$("#sDelSel").disabled=!n;$("#sDelSel").textContent=n?`선택 삭제 (${n})`:"선택 삭제";$("#sChkAll").checked=!!c.length&&n===c.length};
+ document.querySelectorAll(".sChk").forEach(c=>c.onchange=sync);
+ $("#sChkAll").onchange=e=>{document.querySelectorAll(".sChk").forEach(c=>c.checked=e.target.checked);sync()};
+ document.querySelectorAll(".sw").forEach(b=>b.onclick=()=>{const x=saved[b.dataset.i];writeFrom(x.title,x.link)});
+ sync();
+}
+$("#sDelSel").onclick=()=>{const ls=new Set([...document.querySelectorAll(".sChk:checked")].map(c=>c.dataset.l));saved=saved.filter(x=>!ls.has(x.link));save();renderSaved();document.querySelectorAll(".sv").forEach(b=>{const it=newsItems[b.dataset.i];b.textContent=isSaved(it.link)?"✓ 저장됨":"☆ 기사 저장"})};
 $("#kwGo").onclick=loadNews;$("#kwSave").onclick=()=>{cfg.kw=$("#kw").value;save();$("#state").textContent="키워드 저장됨"};
 
 /* 설정 / 백업 */
 function openSet(){$("#sKey").value=cfg.key;$("#sModel").value=cfg.model;$("#sProfile").value=cfg.profile;$("#sImg").value=cfg.img;$("#dlg").showModal()}
 $("#sCancel").onclick=()=>$("#dlg").close();
 $("#sSave").onclick=()=>{cfg.key=$("#sKey").value.trim();cfg.model=$("#sModel").value.trim()||"claude-sonnet-5-5";cfg.profile=$("#sProfile").value;cfg.img=$("#sImg").value;save();$("#dlg").close();render()};
-$("#exp").onclick=()=>{const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([JSON.stringify({hist:history,kw:cfg.kw,profile:cfg.profile},null,1)],{type:"application/json"}));a.download="글쓰기스튜디오_백업_"+new Date().toISOString().slice(0,10)+".json";a.click()};
+$("#exp").onclick=()=>{const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([JSON.stringify({hist:history,saved,kw:cfg.kw,profile:cfg.profile},null,1)],{type:"application/json"}));a.download="글쓰기스튜디오_백업_"+new Date().toISOString().slice(0,10)+".json";a.click()};
 $("#imp").onclick=()=>$("#file").click();
-$("#file").onchange=async e=>{try{const j=JSON.parse(await e.target.files[0].text());const ids=new Set(history.map(h=>h.id));history=[...history,...(j.hist||[]).filter(h=>!ids.has(h.id))].sort((a,b)=>b.t-a.t);if(j.kw)cfg.kw=j.kw;if(j.profile)cfg.profile=j.profile;save();render()}catch{alert("백업 파일을 읽지 못했습니다.")}};
+$("#file").onchange=async e=>{try{const j=JSON.parse(await e.target.files[0].text());const ids=new Set(history.map(h=>h.id));history=[...history,...(j.hist||[]).filter(h=>!ids.has(h.id))].sort((a,b)=>b.t-a.t);saved=[...saved,...(j.saved||[]).filter(x=>!isSaved(x.link))];if(j.kw)cfg.kw=j.kw;if(j.profile)cfg.profile=j.profile;save();render()}catch{alert("백업 파일을 읽지 못했습니다.")}};
 $("#delSel").onclick=()=>{const ids=new Set([...document.querySelectorAll(".chk:checked")].map(c=>c.dataset.id));history=history.filter(h=>!ids.has(String(h.id)));save();renderHist()};
 render();
 </script>
