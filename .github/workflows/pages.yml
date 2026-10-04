@@ -2,7 +2,6 @@ name: Deploy GitHub Pages
 on:
   push:
     branches: [main]
-    paths: ["글관련 프로그램/**", ".github/workflows/pages.yml"]
   workflow_dispatch:
 permissions:
   contents: read
