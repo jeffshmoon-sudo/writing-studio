@@ -57,7 +57,10 @@ dialog::backdrop{background:#0006}dialog label{display:block;margin:10px 0 4px;f
       </div>
       <div class="card">
         <h3><span>결과</span><span class="row"><button class="btn sm" id="copy">복사</button><button class="btn sm" id="toIn">← 입력으로 보내기</button></span></h3>
-        <div class="out" id="out">결과가 여기에 표시됩니다.</div>
+        <div class="out" id="out" contenteditable="plaintext-only" spellcheck="false">결과가 여기에 표시됩니다.</div>
+        <div class="row" style="font-size:12px;color:var(--sub)">결과를 직접 클릭해서 고칠 수 있고, 아래에서 AI에게 추가 수정을 요청할 수 있습니다.</div>
+        <div class="row" id="chips"><button class="btn sm" data-r="더 짧게 줄여줘">더 짧게</button><button class="btn sm" data-r="더 구체적인 사례·숫자를 넣어줘">더 구체적으로</button><button class="btn sm" data-r="톤을 더 부드럽고 친근하게 바꿔줘">부드럽게</button><button class="btn sm" data-r="첫 문장(훅)을 더 강하게 바꿔줘">훅 강화</button><button class="btn sm" data-r="마지막 마무리 문장을 바꿔줘">마무리 변경</button></div>
+        <div class="row"><input type="text" id="refine" placeholder="추가 수정 요청 (예: 2번 문단을 빼고 더 단호하게)" style="flex:1;min-width:180px"><button class="btn pri" id="refineGo">수정 반영</button><button class="btn" id="undo" disabled>되돌리기</button></div>
         <div id="imgBox" class="hide"></div>
       </div>
     </div>
@@ -108,7 +111,7 @@ const CATS={
   opts:[]}
 };
 const MODE_P={"작성":"[작성] 아래 주제/자료로 새 글을 써줘.","수정":"[수정] 아래 글을 내 의도를 살려 다듬어줘. 바뀐 핵심 포인트를 마지막에 3줄로 요약.","검사":"[검사] 아래 글을 점검해줘. 문제점과 수정본을 보여줘.","한→영":"[한→영] 아래를 영어로 번역해줘.","영→한":"[영→한] 아래를 자연스러운 한국어로 번역해줘."};
-const NEWS_KEEP={cat:"linkedin"};
+let versions=[];
 let cur=LS.get("cur","linkedin");
 
 function save(){LS.set("cfg",cfg);LS.set("hist",history)}
@@ -126,14 +129,14 @@ function render(){
  $("#opts").innerHTML=c.opts.map(([id,l,vals])=>`<label>${l} <select data-o="${id}">${vals.map(v=>`<option>${v}</option>`).join("")}</select></label>`).join("");
  $("#actions").innerHTML=c.modes.map((m,i)=>`<button class="btn ${i===0?"pri":""}" data-m="${m}">${m}</button>`).join("");
  document.querySelectorAll("#actions button").forEach(b=>b.onclick=()=>run(b.dataset.m));
- $("#imgBox").classList.add("hide");$("#out").textContent="결과가 여기에 표시됩니다.";
+ $("#imgBox").classList.add("hide");$("#out").textContent="결과가 여기에 표시됩니다.";versions=[];$("#undo").disabled=true;
  if(isNews){$("#kw").value=cfg.kw;if(cfg.kw)loadNews()}
  renderHist();
 }
 function renderHist(){
  const rows=history.filter(h=>h.cat===cur);
  $("#hist").innerHTML=rows.length?rows.map(h=>`<tr class="h" data-id="${h.id}"><td>${new Date(h.t).toLocaleString("ko-KR",{dateStyle:"short",timeStyle:"short"})}</td><td>${esc(h.mode)}</td><td>${esc(h.input.slice(0,60))}${h.input.length>60?"…":""}</td><td>${esc(h.output.slice(0,70))}…</td></tr>`).join(""):`<tr><td colspan=4 style="color:var(--sub)">아직 기록이 없습니다.</td></tr>`;
- document.querySelectorAll("tr.h").forEach(r=>r.onclick=()=>{const h=history.find(x=>x.id==r.dataset.id);$("#input").value=h.input;$("#out").textContent=h.output;showImg(h.output)});
+ document.querySelectorAll("tr.h").forEach(r=>r.onclick=()=>{const h=history.find(x=>x.id==r.dataset.id);$("#input").value=h.input;setOut(h.output,true);showImg(h.output)});
 }
 const esc=s=>String(s).replace(/[&<>"]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[m]));
 
@@ -150,11 +153,31 @@ async function run(mode){
  const btns=document.querySelectorAll("#actions button");btns.forEach(b=>b.disabled=true);$("#out").textContent="작성 중…";
  try{
   const out=await claude(sys,`${MODE_P[mode]}\n${o?"옵션 → "+o+"\n":""}\n${text}`);
-  $("#out").textContent=out;showImg(out);
+  setOut(out,true);showImg(out);
   history.unshift({id:Date.now(),t:Date.now(),cat:cur,mode,input:text,output:out});history=history.slice(0,300);save();renderHist();
  }catch(e){$("#out").innerHTML=`<span class="err">오류: ${esc(e.message)}</span>`}
  btns.forEach(b=>b.disabled=false);
 }
+function setOut(t,fresh){
+ if(fresh)versions=[];else versions.push($("#out").innerText);
+ $("#out").textContent=t;$("#undo").disabled=!versions.length;
+}
+async function refine(req){
+ req=(req||$("#refine").value).trim();const cur_=$("#out").innerText.trim();
+ if(!req){return}if(!cur_||cur_.startsWith("결과가 여기에")||cur_.startsWith("오류")){$("#out").textContent="먼저 결과를 만든 뒤 추가 수정을 요청하세요.";return}
+ const btns=document.querySelectorAll("#refineGo,#chips button,#actions button");btns.forEach(b=>b.disabled=true);
+ const before=cur_;$("#refineGo").textContent="수정 중…";
+ try{
+  const out=await claude(CATS[cur].sys+"\n\n[작성자 프로필]\n"+cfg.profile,`아래 [현재 결과]를 다음 요청대로만 수정해줘. 요청하지 않은 부분은 유지하고, 설명 없이 수정된 전체 글만 출력해.\n\n[요청]\n${req}\n\n[원래 입력]\n${$("#input").value}\n\n[현재 결과]\n${before}`);
+  setOut(out,false);showImg(out);$("#refine").value="";
+  history.unshift({id:Date.now(),t:Date.now(),cat:cur,mode:"추가수정",input:"추가수정: "+req,output:out});history=history.slice(0,300);save();renderHist();
+ }catch(e){alert("오류: "+e.message)}
+ btns.forEach(b=>b.disabled=false);$("#refineGo").textContent="수정 반영";$("#undo").disabled=!versions.length;
+}
+$("#refineGo").onclick=()=>refine();
+$("#refine").addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.isComposing)refine()});
+document.querySelectorAll("#chips button").forEach(b=>b.onclick=()=>refine(b.dataset.r));
+$("#undo").onclick=()=>{if(versions.length){$("#out").textContent=versions.pop();$("#undo").disabled=!versions.length}};
 function showImg(out){
  const box=$("#imgBox");if(cur!=="image"||cfg.img!=="1"){box.classList.add("hide");return}
  const ps=[...out.matchAll(/(?:프롬프트|prompt)[^:：\n]*[:：]\s*(.+)/gi)].map(m=>m[1].replace(/[*"`]/g,"").trim());
@@ -179,8 +202,8 @@ $("#fetchUrl").onclick=async()=>{
  catch(e){$("#out").innerHTML=`<span class="err">링크를 가져오지 못했습니다(${esc(e.message)}). 본문을 직접 붙여넣어 주세요.</span>`}
 };
 $("#clearIn").onclick=()=>inp.value="";
-$("#copy").onclick=()=>navigator.clipboard.writeText($("#out").textContent);
-$("#toIn").onclick=()=>inp.value=$("#out").textContent;
+$("#copy").onclick=()=>navigator.clipboard.writeText($("#out").innerText);
+$("#toIn").onclick=()=>inp.value=$("#out").innerText;
 
 /* 뉴스 */
 async function loadNews(){
