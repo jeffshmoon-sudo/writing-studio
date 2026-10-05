@@ -33,7 +33,7 @@ tr.h{cursor:pointer}tr.h:hover{background:var(--bg)}th{color:var(--sub);font-wei
 .news li{margin-bottom:10px;list-style:none}.news ul{padding:0;margin:0}.news a{color:var(--brand);text-decoration:none;font-weight:600}.news small{color:var(--sub)}
 dialog{border:1px solid var(--line);border-radius:12px;background:var(--panel);color:var(--ink);width:min(640px,94vw);padding:18px}
 dialog::backdrop{background:#0006}dialog label{display:block;margin:10px 0 4px;font-size:13px;color:var(--sub)}dialog input,dialog textarea{width:100%}dialog textarea{min-height:90px}
-#hist td:nth-child(-n+3),thead th,#saved .btn{white-space:nowrap}.snip{max-width:0;width:100%}.snip div{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.s2{color:var(--sub);font-size:12px}.err{color:#dc2626}.hide{display:none!important}
+#hist td:nth-child(-n+3),thead th,#saved .btn{white-space:nowrap}.snip{max-width:0;width:100%}.snip div{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.s2{color:var(--sub);font-size:12px}.chip.lv-hi{background:#fee2e2;color:#b91c1c}.chip.lv-mid{background:#ffedd5;color:#c2410c}.chip.lv-lo{background:var(--bg);color:var(--sub)}.bsec{border-bottom:1px solid var(--line);padding:6px 0}.bsec summary{cursor:pointer;font-weight:600}.err{color:#dc2626}.hide{display:none!important}
 @media(max-width:820px){body{flex-direction:column;height:auto;min-height:100vh}aside{width:100%;flex-direction:row;overflow-x:auto;padding:8px;border-right:0;border-bottom:1px solid var(--line)}aside h1,.sep{display:none}.nav{width:auto;white-space:nowrap}.grid{grid-template-columns:1fr}}
 </style>
 </head>
@@ -42,6 +42,17 @@ dialog::backdrop{background:#0006}dialog label{display:block;margin:10px 0 4px;f
 <main>
   <div class="top"><h2 id="title"></h2><span class="desc" id="desc"></span><span style="flex:1"></span><span class="chip" id="state"></span></div>
 
+  <div class="card hide" id="briefCard">
+    <h3><span>📬 주간 규제 브리핑 (ChatGPT 발행분 모으기)</span><span class="row"><button class="btn sm" id="bNew">+ 새 브리핑 붙여넣기</button></span></h3>
+    <div id="bForm" class="hide" style="display:flex;flex-direction:column;gap:8px">
+      <textarea id="bRaw" style="min-height:150px;flex:none" placeholder="ChatGPT가 발행한 주간 브리핑 전체를 붙여넣으세요. (🇻🇳 국가 제목 · 중요도 · 이번 주 액션 · [링크] 형식을 자동으로 나눕니다)"></textarea>
+      <div class="row"><input type="text" id="bLink" placeholder="상세 웹링크 (선택) — 구독자에게 전체 내용을 보여줄 주소" style="flex:1;min-width:220px"><label class="row" style="gap:4px"><input type="checkbox" id="bAuto" checked> 저장하면 쓰레드·링크드인 초안 자동 생성</label></div>
+      <div class="row"><input type="text" id="bGpt" placeholder="ChatGPT 공유 링크로 불러오기 (실험적)" style="flex:1;min-width:220px"><button class="btn sm" id="bGptGo">불러오기</button><button class="btn" id="bCancel">취소</button><button class="btn pri" id="bSave">저장</button></div>
+    </div>
+    <div class="row"><select id="bSel" style="flex:1;min-width:200px"></select><button class="btn sm" id="bDel">이 브리핑 삭제</button></div>
+    <div id="bMsg" style="color:var(--sub);font-size:13px"></div>
+    <div id="bView"></div>
+  </div>
   <div id="newsView" class="card news hide">
     <div class="row"><input type="text" id="kw" placeholder="키워드 (쉼표로 구분) 예: 전자상거래, 물류, 마케팅" style="flex:1;min-width:220px"><button class="btn pri" id="kwGo">기사 수집</button><button class="btn" id="kwSave">키워드 저장</button></div>
     <div id="newsList">키워드를 저장하면 이 화면을 열 때마다 최신 기사를 자동으로 모읍니다.</div>
@@ -118,7 +129,7 @@ const MODE_P={"작성":"[작성] 아래 주제/자료로 새 글을 써줘.","�
 let versions=[];let saved=LS.get("saved",[]);let newsItems=[];
 let cur=LS.get("cur","linkedin");
 
-function save(){LS.set("cfg",cfg);LS.set("hist",history);LS.set("saved",saved)}
+function save(){LS.set("cfg",cfg);LS.set("hist",history);LS.set("saved",saved);LS.set("briefs",briefs)}
 function buildNav(){
  $("#nav").innerHTML="<h1>✍️ 글쓰기 스튜디오</h1>"+Object.entries(CATS).map(([k,c])=>`<button class="nav ${k===cur?"on":""}" data-k="${k}">${c.icon} ${c.name}</button>`).join("")+`<div class="sep"></div><button class="nav" id="setBtn">⚙️ 설정</button>`;
  document.querySelectorAll(".nav[data-k]").forEach(b=>b.onclick=()=>{cur=b.dataset.k;LS.set("cur",cur);render()});
@@ -128,13 +139,13 @@ function render(){
  buildNav();const c=CATS[cur];
  $("#title").textContent=c.icon+" "+c.name;$("#desc").textContent=c.desc;
  const isNews=cur==="news";
- $("#newsView").classList.toggle("hide",!isNews);$("#savedCard").classList.toggle("hide",!isNews);$("#histCard").classList.toggle("hide",isNews);$("#workView").classList.toggle("hide",isNews);
+ $("#newsView").classList.toggle("hide",!isNews);$("#savedCard").classList.toggle("hide",!isNews);$("#briefCard").classList.toggle("hide",!isNews);$("#histCard").classList.toggle("hide",isNews);$("#workView").classList.toggle("hide",isNews);
  $("#state").textContent=cfg.key?"AI 연결됨":"API 키 필요 (⚙️ 설정)";
  $("#opts").innerHTML=c.opts.map(([id,l,vals])=>`<label>${l} <select data-o="${id}">${vals.map(v=>`<option>${v}</option>`).join("")}</select></label>`).join("");
  $("#actions").innerHTML=c.modes.map((m,i)=>`<button class="btn ${i===0?"pri":""}" data-m="${m}">${m}</button>`).join("");
  document.querySelectorAll("#actions button").forEach(b=>b.onclick=()=>run(b.dataset.m));
  $("#imgBox").classList.add("hide");$("#out").textContent="결과가 여기에 표시됩니다.";versions=[];$("#undo").disabled=true;
- if(isNews){$("#kw").value=cfg.kw;renderSaved();if(cfg.kw)loadNews()}
+ if(isNews){$("#kw").value=cfg.kw;renderSaved();renderBriefs();if(cfg.kw)loadNews()}
  renderHist();
 }
 function renderHist(){
@@ -249,11 +260,130 @@ $("#kwGo").onclick=loadNews;$("#kwSave").onclick=()=>{cfg.kw=$("#kw").value;save
 function openSet(){$("#sKey").value=cfg.key;$("#sModel").value=cfg.model;$("#sProfile").value=cfg.profile;$("#sImg").value=cfg.img;$("#dlg").showModal()}
 $("#sCancel").onclick=()=>$("#dlg").close();
 $("#sSave").onclick=()=>{cfg.key=$("#sKey").value.trim();cfg.model=$("#sModel").value.trim()||"claude-sonnet-5-5";cfg.profile=$("#sProfile").value;cfg.img=$("#sImg").value;save();$("#dlg").close();render()};
-$("#exp").onclick=()=>{const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([JSON.stringify({hist:history,saved,kw:cfg.kw,profile:cfg.profile},null,1)],{type:"application/json"}));a.download="글쓰기스튜디오_백업_"+new Date().toISOString().slice(0,10)+".json";a.click()};
+$("#exp").onclick=()=>{const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([JSON.stringify({hist:history,saved,briefs,kw:cfg.kw,profile:cfg.profile},null,1)],{type:"application/json"}));a.download="글쓰기스튜디오_백업_"+new Date().toISOString().slice(0,10)+".json";a.click()};
 $("#imp").onclick=()=>$("#file").click();
-$("#file").onchange=async e=>{try{const j=JSON.parse(await e.target.files[0].text());const ids=new Set(history.map(h=>h.id));history=[...history,...(j.hist||[]).filter(h=>!ids.has(h.id))].sort((a,b)=>b.t-a.t);saved=[...saved,...(j.saved||[]).filter(x=>!isSaved(x.link))];if(j.kw)cfg.kw=j.kw;if(j.profile)cfg.profile=j.profile;save();render()}catch{alert("백업 파일을 읽지 못했습니다.")}};
+$("#file").onchange=async e=>{try{const j=JSON.parse(await e.target.files[0].text());const ids=new Set(history.map(h=>h.id));history=[...history,...(j.hist||[]).filter(h=>!ids.has(h.id))].sort((a,b)=>b.t-a.t);saved=[...saved,...(j.saved||[]).filter(x=>!isSaved(x.link))];if(j.briefs){const bi=new Set(briefs.map(x=>x.id));briefs=[...briefs,...j.briefs.filter(x=>!bi.has(x.id))]}if(j.kw)cfg.kw=j.kw;if(j.profile)cfg.profile=j.profile;save();render()}catch{alert("백업 파일을 읽지 못했습니다.")}};
 $("#delSel").onclick=()=>{const ids=new Set([...document.querySelectorAll(".chk:checked")].map(c=>c.dataset.id));history=history.filter(h=>!ids.has(String(h.id)));save();renderHist()};
-render();
+/* ===== 주간 규제 브리핑 ===== */
+let briefs=LS.get("briefs",[]);let curBrief=LS.get("curBrief",null);
+const INTERNAL=/Softlanding|ReveOn|리브온|소프트랜딩/i;
+const z2=n=>String(n).padStart(2,"0");
+const cleanUrl=u=>u.replace(/[?&]utm_source=[^&#]*/,"").replace(/\?$/,"");
+function parseBrief(raw){
+ raw=raw.replace(/\r/g,"").replace(/\*\*/g,"");
+ const title=(raw.split("\n").find(l=>l.trim())||"주간 브리핑").trim();
+ const dm=title.match(/(\d{4})[.\-\/](\d{1,2})[.\-\/](\d{1,2})/)||raw.match(/(\d{4})[.\-\/](\d{1,2})[.\-\/](\d{1,2})/);
+ const date=dm?`${dm[1]}-${z2(dm[2])}-${z2(dm[3])}`:new Date().toISOString().slice(0,10);
+ const marks=[...raw.matchAll(/^[ \t]*(\p{Regional_Indicator}{2})[ \t]*(.+)$|^[ \t]*(이번 주 우선순위.*)$/gmu)];
+ const paras=t=>t.split("\n").filter(l=>!/^\s*-{3,}\s*$/.test(l)).join("\n").split(/\n\s*\n/).map(p=>p.trim()).filter(Boolean);
+ const first=marks.length?marks[0].index:raw.length;
+ const intro=paras(raw.slice(0,first)).filter(p=>p!==title).join("\n\n");
+ const sections=marks.map((m,i)=>{
+  const chunk=raw.slice(m.index+m[0].length,marks[i+1]?marks[i+1].index:raw.length);
+  const sec={flag:m[1]||"📌",head:(m[2]||m[3]).trim(),kind:m[1]?"country":"priority",imp:"",lv:"",body:[],action:"",links:[]};
+  for(const p of paras(chunk)){
+   if(/^중요도\s*[:：]/.test(p)){sec.imp=p.replace(/^중요도\s*[:：]\s*/,"");sec.lv=sec.imp.includes("🔴")?"hi":sec.imp.includes("🟠")?"mid":"lo";continue}
+   if(/^이번 주 액션\s*[:：]/.test(p)){sec.action=p.replace(/^이번 주 액션\s*[:：]\s*/,"");continue}
+   let only=true;const rest=p.replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g,(a,t,u)=>{sec.links.push({title:t,url:cleanUrl(u)});return ""}).trim();
+   if(rest)sec.body.push(p.replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g,"$1"));
+  }
+  return sec;
+ });
+ if(!sections.length)sections.push({flag:"📌",head:title,kind:"country",imp:"",lv:"",body:paras(raw),action:"",links:[]});
+ return{title,date,intro,sections};
+}
+const pubBody=(s,ex)=>(ex?s.body.filter(p=>!INTERNAL.test(p)):s.body).join("\n\n");
+const pubSections=(b,ex)=>b.sections.filter(s=>!(ex&&s.kind==="priority"));
+function sectionText(b,s,ex){return `${s.flag} ${s.head}${s.imp?`\n중요도: ${s.imp}`:""}\n${pubBody(s,ex)}${!ex&&s.action?`\n이번 주 액션: ${s.action}`:""}`}
+function briefText(b,ex){return `${b.title}\n\n`+(ex?"":b.intro+"\n\n")+pubSections(b,ex).map(s=>sectionText(b,s,ex)).join("\n\n")}
+const getBrief=()=>briefs.find(b=>b.id===curBrief);
+
+function renderBriefs(){
+ briefs.sort((a,b)=>b.date.localeCompare(a.date)||b.id-a.id);
+ if(!getBrief())curBrief=briefs[0]?.id??null;
+ $("#bSel").innerHTML=briefs.length?briefs.map(b=>`<option value="${b.id}" ${b.id===curBrief?"selected":""}>${esc(b.date)} · ${esc(b.title.slice(0,40))}</option>`).join(""):`<option>저장된 브리핑이 없습니다</option>`;
+ $("#bDel").disabled=!briefs.length;renderBriefView();
+}
+function renderBriefView(){
+ const b=getBrief(),v=$("#bView");if(!b){v.innerHTML="";return}
+ const ex=b.ex!==false;
+ v.innerHTML=`<div class="row" style="margin:6px 0"><input type="text" id="vLink" value="${esc(b.link||"")}" placeholder="상세 웹링크 (구독자에게 전달할 주소)" style="flex:1;min-width:220px"><label class="row" style="gap:4px;font-size:13px"><input type="checkbox" id="vEx" ${ex?"checked":""}> 내부 내용 제외(액션·우선순위·회사명 문단)</label></div>
+ <div class="row" style="margin-bottom:8px"><button class="btn pri sm" data-a="gen" data-k="threads">🧵 쓰레드 요약 생성</button><button class="btn pri sm" data-a="gen" data-k="linkedin">💼 링크드인 요약 생성</button><button class="btn sm" data-a="share">🔗 공유 읽기 링크 복사</button></div>`
+ +`<div>`+b.sections.map((s,i)=>{const hide=ex&&s.kind==="priority";return `<details class="bsec ${hide?"hide":""}"><summary><span class="chip lv-${s.lv||"lo"}">${esc(s.imp||(s.kind==="priority"?"내부":""))||"·"}</span> ${esc(s.flag)} ${esc(s.head)}</summary><div class="out" style="min-height:0;margin:6px 0">${esc(pubBody(s,false))}${s.action?`\n\n▶ 이번 주 액션: ${esc(s.action)}`:""}</div>${s.links.map(l=>`<div><a href="${esc(l.url)}" target="_blank" rel="noopener">🔗 ${esc(l.title)}</a></div>`).join("")}<div class="row" style="margin:6px 0"><button class="btn sm" data-a="gen" data-k="threads" data-i="${i}">🧵 이 항목 쓰레드</button><button class="btn sm" data-a="gen" data-k="linkedin" data-i="${i}">💼 이 항목 링크드인</button></div></details>`}).join("")+`</div>`
+ +`<h3 style="margin:12px 0 6px;font-size:13px;color:var(--sub)">생성된 초안 (직접 고쳐도 자동 저장)</h3>`
+ +((b.drafts||[]).length?b.drafts.map(d=>`<div class="card" style="margin-bottom:8px"><div class="row"><span class="chip">${d.kind==="threads"?"🧵 쓰레드":"💼 링크드인"} · ${esc(d.scope)}</span><span style="flex:1"></span><button class="btn sm" data-a="copy" data-d="${d.id}">복사</button><button class="btn sm" data-a="polish" data-d="${d.id}">다듬기 화면으로</button><button class="btn sm" data-a="deld" data-d="${d.id}">삭제</button></div><textarea data-d="${d.id}" class="dtx" style="min-height:140px;flex:none">${esc(d.text)}</textarea></div>`).join(""):`<div style="color:var(--sub);font-size:13px">아직 초안이 없습니다. 위 버튼으로 생성하세요.</div>`);
+ $("#vLink").onchange=e=>{b.link=e.target.value.trim();save()};
+ $("#vEx").onchange=e=>{b.ex=e.target.checked;save();renderBriefView()};
+ v.querySelectorAll(".dtx").forEach(t=>t.onchange=()=>{b.drafts.find(d=>d.id==t.dataset.d).text=t.value;save()});
+}
+$("#bView").onclick=async e=>{
+ const bt=e.target.closest("button[data-a]");if(!bt)return;const b=getBrief();const a=bt.dataset.a;
+ if(a==="gen"){await genDraft(b,bt.dataset.k,bt.dataset.i===undefined?null:+bt.dataset.i)}
+ else if(a==="copy"){navigator.clipboard.writeText(b.drafts.find(d=>d.id==bt.dataset.d).text);$("#bMsg").textContent="복사했습니다."}
+ else if(a==="deld"){b.drafts=b.drafts.filter(d=>d.id!=bt.dataset.d);save();renderBriefView()}
+ else if(a==="polish"){const d=b.drafts.find(x=>x.id==bt.dataset.d);cur=d.kind;LS.set("cur",cur);render();inp.value=d.text;setOut(d.text,true)}
+ else if(a==="share"){shareLink(b)}
+};
+async function genDraft(b,kind,idx){
+ const ex=b.ex!==false;const msg=$("#bMsg");
+ const sec=idx==null?null:b.sections[idx];
+ const src=sec?sectionText(b,sec,ex):briefText(b,ex);
+ const link=(b.link||"").trim();
+ const how=kind==="threads"
+  ?(sec?"이 항목 하나를 쓰레드 글 1~2개(각 500자 이내)로 축약.":"쓰레드 연결 글로 축약. 1/ 이번 주 핵심 한 줄 요약, 2/~ 국가별 한 글씩(국기 이모지로 시작, 2~3문장), 마지막 글에 마무리와 링크.")
+  :(sec?"이 항목 하나를 링크드인 포스트(800자 안팎)로 축약.":"링크드인 포스트(1,300자 안팎)로 축약. 훅 → 국가별 1~2줄(국기 이모지) → 한 줄 시사점 → 링크.");
+ const rules=`[브리핑 축약 규칙]\n- ${how}\n- 수치·날짜·기관명을 바꾸지 말고, 원문에 없는 사실을 추가하지 말 것\n- '초안 단계/확정/검토 중' 같은 확정 여부 표현을 반드시 유지\n- 내부 업무 지시·고객사 정보·회사명은 쓰지 말 것\n- ${link?`마지막 줄에 '자세한 내용 👉 ${link}' 를 넣을 것`:"링크 문구는 넣지 말 것"}\n- 설명 없이 완성된 글만 출력`;
+ const btns=document.querySelectorAll("#bView button");btns.forEach(x=>x.disabled=true);msg.textContent=`${kind==="threads"?"쓰레드":"링크드인"} 요약 생성 중…`;
+ try{
+  const out=await claude(CATS[kind].sys+"\n\n[작성자 프로필]\n"+cfg.profile+"\n\n"+rules,`다음 규제 브리핑을 축약해줘.\n\n${src}`);
+  (b.drafts=b.drafts||[]).unshift({id:Date.now()+Math.random(),kind,scope:sec?sec.head.slice(0,12):"전체",text:out,t:Date.now()});
+  save();msg.textContent=link?"초안을 만들었습니다.":"초안을 만들었습니다. (상세 웹링크가 비어 있어 링크 문구는 빠졌습니다)";
+ }catch(e){msg.innerHTML=`<span class="err">오류: ${esc(e.message)}</span>`}
+ renderBriefView();
+}
+const b64=u8=>btoa(String.fromCharCode(...u8)).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+async function shareLink(b){
+ const ex=true;const data={t:b.title,d:b.date,s:pubSections(b,ex).map(s=>({f:s.flag,h:s.head,i:s.imp,l:s.lv,b:pubBody(s,ex),k:s.links}))};
+ let bytes=new TextEncoder().encode(JSON.stringify(data)),tag="p";
+ try{const cs=new Blob([bytes]).stream().pipeThrough(new CompressionStream("gzip"));bytes=new Uint8Array(await new Response(cs).arrayBuffer());tag="z"}catch{}
+ const url=location.href.split("#")[0]+"#b="+tag+b64(bytes);
+ await navigator.clipboard.writeText(url);
+ $("#bMsg").textContent=`공유 읽기 링크를 복사했습니다 (${url.length.toLocaleString()}자). 내부 항목은 제외된 구독자용 페이지입니다. 너무 길면 단축 URL 서비스를 쓰거나 상세 웹링크 칸에 별도 페이지 주소를 넣으세요.`;
+}
+async function openShared(){
+ if(!location.hash.startsWith("#b="))return false;
+ (async()=>{try{
+  const h=location.hash.slice(3),tag=h[0],s=h.slice(1).replace(/-/g,"+").replace(/_/g,"/");
+  let bytes=Uint8Array.from(atob(s+"=".repeat((4-s.length%4)%4)),c=>c.charCodeAt(0));
+  if(tag==="z")bytes=new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer());
+  const d=JSON.parse(new TextDecoder().decode(bytes));
+  document.title=d.t;document.body.style.cssText="display:block;height:auto";
+  document.body.innerHTML=`<main style="max-width:760px;margin:0 auto;padding:24px 16px"><h2 style="margin:0 0 4px">${esc(d.t)}</h2><div style="color:var(--sub);font-size:13px;margin-bottom:16px">${esc(d.d)}</div>`+d.s.map(x=>`<section class="card" style="margin-bottom:14px"><h3 style="margin:0;font-size:16px;color:var(--ink)">${esc(x.f)} ${esc(x.h)}</h3>${x.i?`<div><span class="chip lv-${x.l||"lo"}">중요도 ${esc(x.i)}</span></div>`:""}<div style="white-space:pre-wrap;line-height:1.8">${esc(x.b)}</div>${x.k.map(l=>`<div><a href="${esc(l.url)}" target="_blank" rel="noopener" style="color:var(--brand)">🔗 ${esc(l.title)}</a></div>`).join("")}</section>`).join("")+`<div style="color:var(--sub);font-size:12px">본 내용은 공개 자료를 정리한 참고용이며, 최종 확인은 각 기관의 공식 공지를 따르세요.</div></main>`;
+ }catch(e){document.body.innerHTML="<p style='padding:24px'>공유 링크를 읽지 못했습니다.</p>"}})();
+ return true;
+}
+$("#bSel").onchange=e=>{curBrief=+e.target.value;LS.set("curBrief",curBrief);renderBriefView()};
+$("#bNew").onclick=()=>{$("#bForm").classList.toggle("hide");$("#bRaw").focus()};
+$("#bCancel").onclick=()=>$("#bForm").classList.add("hide");
+$("#bDel").onclick=()=>{briefs=briefs.filter(b=>b.id!==curBrief);curBrief=null;save();renderBriefs()};
+$("#bGptGo").onclick=async()=>{
+ const u=$("#bGpt").value.trim();if(!u)return;$("#bMsg").textContent="불러오는 중…";
+ try{const r=await fetch("https://r.jina.ai/"+u);if(!r.ok)throw new Error(r.status);const t=await r.text();if(t.length<200)throw new Error("본문이 비어 있음");$("#bRaw").value=t;$("#bMsg").textContent="불러왔습니다. 내용을 확인하고 저장하세요."}
+ catch(e){$("#bMsg").innerHTML=`<span class="err">공유 링크를 읽지 못했습니다(${esc(e.message)}). ChatGPT 답변을 복사해서 붙여넣어 주세요.</span>`}
+};
+$("#bSave").onclick=async()=>{
+ const raw=$("#bRaw").value.trim();if(!raw)return;
+ const p=parseBrief(raw);const old=briefs.find(b=>b.date===p.date&&b.title===p.title);
+ const b=Object.assign(old||{id:Date.now(),drafts:[]},p,{raw,link:$("#bLink").value.trim()||(old&&old.link)||""});
+ if(!old)briefs.push(b);
+ let added=0;for(const s of p.sections)for(const l of s.links)if(!isSaved(l.url)){saved.unshift({title:`[주간브리핑] ${s.head.slice(0,30)} — ${l.title}`,link:l.url,date:p.date,kw:"주간브리핑",t:Date.now()});added++}
+ curBrief=b.id;LS.set("curBrief",curBrief);save();renderSaved();
+ $("#bRaw").value="";$("#bLink").value="";$("#bForm").classList.add("hide");renderBriefs();
+ $("#bMsg").textContent=`저장했습니다: ${p.sections.length}개 항목${added?`, 출처 기사 ${added}건을 '저장한 기사'에 추가`:""}.`;
+ if($("#bAuto").checked){await genDraft(b,"threads",null);await genDraft(b,"linkedin",null)}
+};
+
+openShared().then(o=>{if(!o)render()});
 </script>
 </body>
 </html>
